@@ -1,0 +1,145 @@
+Feilmelding, fikser mate info:
+
+ovbr$ java -Xmx4G -jar ~/NGS/picard-tools-1.79/FixMateInformation.jar I=1761CB0001.bam O=FM_1761CB0001.bam TMP_DIR=/Volumes/LaCie/tmp VALIDATION_STRINGENCY=LENIENT
+
+Sorter bam fil -> 2.sh
+fname=$1
+shift
+infile=${fname}
+outfile=2${fname}
+java -Xmx4g -jar ~/NGS/picard-tools-1.79/SortSam.jar \
+INPUT=${infile} \
+OUTPUT=${outfile} \
+SORT_ORDER=coordinate \
+VALIDATION_STRINGENCY=LENIENT \
+TMP_DIR=/Volumes/LaCie/tmp
+
+#OK
+
+Valider bam fil:
+
+ovbr$ java -Xmx4G -jar ~/NGS/picard-tools-1.79/ValidateSamFile.jar  I=2FM_1761CB0001.bam R=~/NGS/Reference_NGS/Broad/human_g1k_v37.fasta IGNORE=INVALID_TAG_NM IGNORE=INVALID_MAPPING_QUALITY TMP_DIR=/Volumes/LaCie/tmp
+
+# OK. En del reads med feil NM tag, en god del umappede reads med MAPQ ikke lik 0.
+
+
+5a.sh
+
+fname=$1
+shift
+infile=${fname}
+outfile=${fname}.list
+java -Xmx4g -jar /Users/ovbr/GATK/GenomeAnalysisTK.jar \
+-T RealignerTargetCreator \
+-R ~/NGS/Reference_NGS/Broad/human_g1k_v37.fasta \
+-known /Volumes/OCZ1/Broad/Mills_and_1000G_gold_standard.indels.b37.sites.vcf \
+-known /Volumes/OCZ1/Broad/1000G_phase1.indels.b37.vcf \
+-o ${outfile} \
+-I ${infile}
+
+log: INFO  00:17:02,335 TraversalEngine - Total runtime 10614.97 secs, 176.92 min, 2.95 hours 
+INFO  00:17:02,335 TraversalEngine - 98899967 reads were filtered out during traversal out of 146503223 total (67.51%) 
+INFO  00:17:02,335 TraversalEngine -   -> 1334158 reads (0.91% of total) failing BadMateFilter 
+INFO  00:17:02,336 TraversalEngine -   -> 83632605 reads (57.09% of total) failing DuplicateReadFilter 
+INFO  00:17:02,336 TraversalEngine -   -> 13932761 reads (9.51% of total) failing MappingQualityZeroFilter 
+INFO  00:17:02,339 TraversalEngine -   -> 443 reads (0.00% of total) failing UnmappedReadFilter 
+INFO  00:17:04,317 GATKRunReport - Uploaded run statistics report to AWS S3 
+Processing time was 2 hour(s) 57 minute(s) 2 second(s)
+
+5b.sh
+
+OK.
+log:
+INFO  08:59:44,211 TraversalEngine - Total runtime 4822.03 secs, 80.37 min, 1.34 hours 
+INFO  08:59:44,308 TraversalEngine - 0 reads were filtered out during traversal out of 151003047 total (0.00%) 
+INFO  08:59:48,268 GATKRunReport - Uploaded run statistics report to AWS S3 
+/usr/local/bin/NGS_script/5b.sh: line 29: -log: command not found
+Processing time was 1 hour(s) 20 minute(s) 32 second(s)
+
+6a.sh
+
+Får feilmeldinger... Her er det store endringer i v2.
+BaseRecalibrator brukes isteden for Count Covariates...
+
+Etter denne skal de kjøres en ny walker; PrintReads
+
+java -jar GenomeAnalysisTK.jar \
+-T PrintReads \
+-R reference.fasta \
+-I input.bam \
+-BQSR recalibration_report.grp \
+-o output.bam
+
+Output fra BaseRecalibrator ern en .grp fil som brukes av PrintReads.
+
+
+#Quality score recalibration - Base Recalibrator
+echo --------------------------- 6a.sh ---------------------------
+echo Quality score recalibration - Base Recalibrator
+echo Using GATK. 
+echo Input 54321_input.bam
+echo Output 54321_input.bam.recal_data.grp 
+echo ---------------------------  go -----------------------------
+fname=$1
+shift
+infile=${fname} \
+outfile=${fname}.recal_data.grp \
+java -Xmx4g -jar ~/GATK/GenomeAnalysisTK.jar \
+-T BaseRecalibrator \
+-cov ReadGroupCovariate \
+-cov QualityScoreCovariate \
+-I ${infile} \
+-R ~/NGS/Reference_NGS/Broad/human_g1k_v37.fasta \
+-knownSites /Volumes/OCZ1/Broad/dbsnp_135.b37.excluding_sites_after_129.vcf \
+-knownSites /Volumes/OCZ1/Broad/Mills_and_1000G_gold_standard.indels.b37.sites.vcf \
+-knownSites /Volumes/OCZ1/Broad/1000G_phase1.indels.b37.vcf \
+-U ALLOW_UNINDEXED_BAM \
+--filter_mismatching_base_and_quals \
+-o ${outfile} \
+-log 6a_${fname}_QSR.log
+
+
+-cov ReadGroupCovariate \
+-cov QualityScoreCovariate \
+-cov CycleCovariate \
+-cov DinucCovariate \
+
+OK, dette fungerer: Ser ut som om problemet var spesifisering av in-fil...?
+fname=$1
+shift
+infile=${fname} \
+java -Xmx4g -jar ~/GATK/GenomeAnalysisTK.jar \
+-T BaseRecalibrator \
+-I ${fname} \
+-R ~/NGS/Reference_NGS/Broad/human_g1k_v37.fasta \
+-knownSites /Volumes/OCZ1/Broad/dbsnp_135.b37.excluding_sites_after_129.vcf \
+-knownSites /Volumes/OCZ1/Broad/Mills_and_1000G_gold_standard.indels.b37.sites.vcf \
+-knownSites /Volumes/OCZ1/Broad/1000G_phase1.indels.b37.vcf \
+-o recal_data.grp \
+-log 6a_${fname}_QSR.log
+
+
+Neste; Lage en ny realibrert bam fil:
+
+6b_illumina_test.sh
+
+fname=$1
+recalfile=$2
+shift
+infile=${fname}
+recfile=${recalfile}
+outfile=6${fname}
+java -Xmx4g -jar ~/GATK/GenomeAnalysisTK.jar  \
+-T PrintReads \
+-R ~/NGS/Reference_NGS/Broad/human_g1k_v37.fasta \
+-I ${infile} \
+-BQSR ${recfile} \
+-o ${outfile} \
+-log 6b_illumina_test_${fname}_QSR.log
+
+ 
+
+
+
+ftp.broadinstitute.org
+gsapubftp-anonymous
